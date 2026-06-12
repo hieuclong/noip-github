@@ -1,7 +1,7 @@
 import os
 import time
 import requests
-import pyotp  # Thư viện tự động sinh mã OTP 6 số
+import pyotp
 import undetected_chromedriver as uc 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -11,7 +11,6 @@ from selenium.webdriver.support import expected_conditions as EC
 # --- CONFIGURATION ---
 USERNAME = os.environ['NOIP_USERNAME']
 PASSWORD = os.environ['NOIP_PASSWORD']
-# Lấy mã Secret để sinh OTP giải quyết vấn đề thiết bị lạ
 NOIP_2FA_SECRET = os.environ.get('NOIP_2FA_SECRET') 
 TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
@@ -65,32 +64,53 @@ def renew():
         print("Submitting login form via Enter key...")
         password_field.send_keys(Keys.ENTER)
         
-        print("⏳ Đang đợi kiểm tra trang xác thực thiết bị/2FA (15s)...")
+        print("⏳ Đang đợi trang bảo mật phản hồi (15s)...")
         time.sleep(15) 
 
         current_url = driver.current_url.lower()
-        print(f"📍 URL hiện tại sau khi nhấn đăng nhập: {driver.current_url}")
+        print(f"📍 URL hiện tại sau khi đăng nhập: {driver.current_url}")
         
-        # XỬ LÝ NẾU BỊ CHẶN BỞI TRANG ĐÒI MÃ XÁC THỰC
+        # XỬ LÝ KHU VỰC XÁC THỰC THIẾT BỊ / 2FA
         if "2fa/verify" in current_url:
             if not NOIP_2FA_SECRET:
                 driver.save_screenshot("2fa_error.png")
-                raise Exception("Phát hiện trang đòi mã xác minh nhưng bạn chưa cấu hình NOIP_2FA_SECRET!")
+                raise Exception("Phát hiện trang đòi mã xác minh nhưng thiếu NOIP_2FA_SECRET!")
                 
-            print("🔐 Phát hiện trang kiểm tra bảo mật! Đang tự động sinh mã OTP...")
-            # Sử dụng thuật toán TOTP để tính toán mã số dựa theo thời gian thực
-            totp = pyotp.TOTP(NOIP_2FA_SECRET.replace(" ", ""))
-            otp_code = totp.now()
-            print(f"🔑 Mã OTP vừa khởi tạo thành công: {otp_code}")
+            print("🔐 Đang tự động tính toán mã số OTP từ Secret Key...")
+            clean_secret = NOIP_2FA_SECRET.replace(" ", "").strip()
+            totp = pyotp.TOTP(clean_secret)
+            otp_code = str(totp.now())
+            print(f"🔑 Mã OTP khởi tạo thành công: {otp_code}")
             
-            # Chờ ô nhập mã xuất hiện (No-IP sử dụng ô có name="code")
-            otp_field = wait.until(EC.element_to_be_clickable((By.NAME, "code")))
-            otp_field.send_keys(otp_code)
-            time.sleep(1)
-            otp_field.send_keys(Keys.ENTER)
+            # KIỂM TRA XEM LÀ GIAO DIỆN 6 Ô RỜI HAY GIAO DIỆN 1 Ô LIỀN
+            inputs = driver.find_elements(By.XPATH, "//form//input[@type='text' or @type='number']")
             
-            print("⏳ Đang đợi hệ thống phê duyệt mã OTP (10s)...")
-            time.sleep(10)
+            if len(inputs) >= 6:
+                print(f"🧩 Phát hiện giao diện xác thực chia làm {len(inputs)} ô rời. Tiến hành rải mã...")
+                for i in range(6):
+                    inputs[i].clear()
+                    inputs[i].send_keys(otp_code[i])
+                    time.sleep(0.2) # Tránh gõ quá nhanh làm lỗi script
+                
+                # Tìm nút Submit/Verify và click
+                try:
+                    verify_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Verify') or @type='submit']")
+                    verify_btn.click()
+                except:
+                    inputs[-1].send_keys(Keys.ENTER)
+            else:
+                print("📝 Phát hiện giao diện 1 ô nhập OTP liền chuỗi. Tiến hành điền thẳng...")
+                try:
+                    otp_field = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@id='mfa-code' or @name='code' or contains(@class, 'form-control')]")))
+                    otp_field.clear()
+                    otp_field.send_keys(otp_code)
+                    otp_field.send_keys(Keys.ENTER)
+                except Exception as e:
+                    driver.save_screenshot("otp_field_error.png")
+                    raise Exception("Không tìm thấy cấu hình ô nhập mã OTP phù hợp.")
+            
+            print("⏳ Đang đợi hệ thống duyệt quyền truy cập (15s)...")
+            time.sleep(15)
 
         print("Navigating to Dynamic DNS Dashboard...")
         driver.get("https://my.noip.com/dynamic-dns")
@@ -98,7 +118,7 @@ def renew():
 
         if "login" in driver.current_url:
             driver.save_screenshot("dashboard_failed.png")
-            raise Exception("Bị đá về trang login khi cố vào Dashboard! Hãy chắc chắn bạn đã nhấn kích hoạt nút 2FA trên web.")
+            raise Exception("Bị đá về trang đăng nhập! Có thể mã OTP sinh ra bị lệch chu kỳ thời gian hoặc sai Secret Key.")
 
         print("Checking for hosts to renew...")
         confirm_buttons = driver.find_elements(By.XPATH, "//button[contains(text(), 'Confirm')]")
@@ -118,14 +138,8 @@ def renew():
     except Exception as e:
         error_msg = f"⚠️ No-IP Bot Thất Bại!\nLỗi: {str(e)}"
         print(error_msg)
-        
-        if os.path.exists("2fa_error.png"):
-            send_telegram(error_msg, photo_path="2fa_error.png")
-        elif os.path.exists("dashboard_failed.png"):
-            send_telegram(error_msg, photo_path="dashboard_failed.png")
-        else:
-            driver.save_screenshot("error.png")
-            send_telegram(error_msg, photo_path="error.png")
+        driver.save_screenshot("error.png")
+        send_telegram(error_msg, photo_path="error.png")
         raise e
     finally:
         driver.quit()
