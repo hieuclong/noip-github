@@ -4,7 +4,7 @@ name: No-IP Auto Renew
 
 on:
   schedule:
-    - cron: '0 0 */15 * *'
+    - cron: '0 0 * * *'
   workflow_dispatch:
 
 jobs:
@@ -25,7 +25,8 @@ jobs:
 
       - name: Run Script
         env:
-          NOIP_COOKIE: ${{ secrets.NOIP_COOKIE }}
+          NOIP_USERNAME: ${{ secrets.NOIP_USERNAME }}
+          NOIP_PASSWORD: ${{ secrets.NOIP_PASSWORD }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python renew.py
