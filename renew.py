@@ -40,13 +40,16 @@ def renew():
         time.sleep(4)
 
         print("Filling login form...")
-        # Tự động tìm ô điền tài khoản, mật khẩu dựa trên cấu trúc web No-IP
         driver.find_element(By.NAME, "username").send_keys(USERNAME)
-        driver.find_element(By.NAME, "password").send_keys(PASSWORD)
         
-        print("Clicking Login Button...")
-        driver.find_element(By.NAME, "submit").click()
-        time.sleep(6)
+        # Điền mật khẩu và giả lập nhấn phím ENTER để đăng nhập
+        from selenium.webdriver.common.keys import Keys
+        password_field = driver.find_element(By.NAME, "password")
+        password_field.send_keys(PASSWORD)
+        
+        print("Submitting login form via Enter key...")
+        password_field.send_keys(Keys.ENTER)
+        time.sleep(8) # Đợi 8 giây để trang web xử lý đăng nhập và chuyển hướng hoàn toàn
 
         print("Navigating to Dynamic DNS Dashboard...")
         driver.get("https://my.noip.com/dynamic-dns")
@@ -69,8 +72,11 @@ def renew():
             print(success_msg)
             send_telegram(success_msg) 
         else:
-            print("✅ Đăng nhập thành công. Không có tên miền nào cần bấm gia hạn hôm nay.")
-
+            success_idle_msg = "✅ Đăng nhập thành công. Không có tên miền nào cần bấm gia hạn hôm nay."
+            print(success_idle_msg)
+            # Bạn có thể bật dòng dưới nếu muốn Telegram báo về hằng ngày kể cả khi không có tên miền nào cần gia hạn
+            # send_telegram(success_idle_msg)
+            
     except Exception as e:
         error_msg = f"⚠️ No-IP Bot Thất Bại!\nLỗi: {str(e)}\nVui lòng kiểm tra lại tài khoản."
         print(error_msg)
