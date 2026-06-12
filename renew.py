@@ -8,20 +8,17 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 # --- CONFIGURATION ---
-SESSION_COOKIE = os.environ['NOIP_COOKIE']
-TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN') # Use .get() so it doesn't crash if missing
+USERNAME = os.environ['NOIP_USERNAME']
+PASSWORD = os.environ['NOIP_PASSWORD']
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
 
 def send_telegram(message):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print("⚠️ Telegram secrets missing. Skipping alert.")
         return
-    
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
         requests.post(url, json=payload)
         print("📲 Telegram notification sent!")
@@ -29,36 +26,35 @@ def send_telegram(message):
         print(f"❌ Failed to send Telegram alert: {e}")
 
 def renew():
-    # Setup Invisible Browser
     chrome_options = Options()
     chrome_options.add_argument("--headless") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36")
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
     try:
-        print("Opening No-IP...")
-        driver.get("https://www.noip.com")
-        
-        print("Injecting Session Cookie...")
-        driver.add_cookie({
-            'name': 'laravel_session',
-            'value': SESSION_COOKIE,
-            'domain': '.noip.com',
-            'path': '/'
-        })
+        print("Opening No-IP Login Page...")
+        driver.get("https://www.noip.com/login")
+        time.sleep(4)
 
-        print("Navigating to Dashboard...")
+        print("Filling login form...")
+        # Tự động tìm ô điền tài khoản, mật khẩu dựa trên cấu trúc web No-IP
+        driver.find_element(By.NAME, "username").send_keys(USERNAME)
+        driver.find_element(By.NAME, "password").send_keys(PASSWORD)
+        
+        print("Clicking Login Button...")
+        driver.find_element(By.NAME, "submit").click()
+        time.sleep(6)
+
+        print("Navigating to Dynamic DNS Dashboard...")
         driver.get("https://my.noip.com/dynamic-dns")
         time.sleep(5)
 
-        # CHECK 1: Are we logged in?
         if "login" in driver.current_url:
-            raise Exception("Login failed. The cookie has likely expired.")
+            raise Exception("Đăng nhập thất bại! Khả năng cao bị kẹt Captcha hoặc sai tài khoản/mật khẩu.")
 
-        # CHECK 2: Look for buttons
         print("Checking for hosts to renew...")
         confirm_buttons = driver.find_elements(By.XPATH, "//button[contains(text(), 'Confirm')]")
         
@@ -69,19 +65,17 @@ def renew():
                 count += 1
                 time.sleep(2)
             
-            success_msg = f"✅ Success! Renewed {count} host(s) on No-IP."
+            success_msg = f"✅ Success! Bạn Trung Hiếu đã tự động gia hạn thành công {count} tên miền trên No-IP."
             print(success_msg)
-            # Optional: Uncomment below if you want success messages too
-            # send_telegram(success_msg) 
-            
+            send_telegram(success_msg) 
         else:
-            print("✅ Login successful. No hosts needed renewal today.")
+            print("✅ Đăng nhập thành công. Không có tên miền nào cần bấm gia hạn hôm nay.")
 
     except Exception as e:
-        error_msg = f"⚠️ No-IP Bot Failed!\nError: {str(e)}\n\n👉 Please update your GitHub Secret 'NOIP_COOKIE' manually."
+        error_msg = f"⚠️ No-IP Bot Thất Bại!\nLỗi: {str(e)}\nVui lòng kiểm tra lại tài khoản."
         print(error_msg)
         send_telegram(error_msg)
-        raise e # Re-raise to mark the GitHub Action as 'Failed' in the UI too
+        raise e
 
     finally:
         driver.quit()
