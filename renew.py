@@ -82,22 +82,32 @@ def renew():
             otp_code = str(totp.now())
             print(f"🔑 Mã OTP khởi tạo thành công: {otp_code}")
             
-            # KIỂM TRA XEM LÀ GIAO DIỆN 6 Ô RỜI HAY GIAO DIỆN 1 Ô LIỀN
-            inputs = driver.find_elements(By.XPATH, "//form//input[@type='text' or @type='number']")
+            # Lấy toàn bộ ô nhập văn bản/số trong form
+            all_inputs = driver.find_elements(By.XPATH, "//form//input[@type='text' or @type='number' or not(@type)]")
+            # LỌC SẠCH: Chỉ giữ lại các ô thực sự hiển thị trên màn hình để tương tác
+            visible_inputs = [inp for inp in all_inputs if inp.is_displayed()]
             
-            if len(inputs) >= 6:
-                print(f"🧩 Phát hiện giao diện xác thực chia làm {len(inputs)} ô rời. Tiến hành rải mã...")
+            print(f"📊 Tìm thấy {len(visible_inputs)} ô nhập hiển thị thực tế trên màn hình.")
+
+            if len(visible_inputs) >= 6:
+                print("🧩 Tiến hành rải chính xác 6 ký tự OTP vào các ô số rời...")
                 for i in range(6):
-                    inputs[i].clear()
-                    inputs[i].send_keys(otp_code[i])
-                    time.sleep(0.2) # Tránh gõ quá nhanh làm lỗi script
+                    try:
+                        visible_inputs[i].clear()
+                        visible_inputs[i].send_keys(otp_code[i])
+                        time.sleep(0.1)
+                    except Exception as input_err:
+                        print(f"⚠️ Không thể gõ vào ô thứ {i+1}: {input_err}")
                 
-                # Tìm nút Submit/Verify và click
+                # Tìm nút bấm xanh mang chữ "Verify" (Bất kể nó là thẻ gì: a, button, input)
+                print("🖱️ Đang kích hoạt nút Verify...")
+                time.sleep(1)
                 try:
-                    verify_btn = driver.find_element(By.XPATH, "//button[contains(text(), 'Verify') or @type='submit']")
+                    verify_btn = driver.find_element(By.XPATH, "//*[contains(text(), 'Verify') or @value='Verify']")
                     verify_btn.click()
                 except:
-                    inputs[-1].send_keys(Keys.ENTER)
+                    print("⚠️ Không click được nút bằng Xpath, thử gửi lệnh Enter trực tiếp từ ô cuối...")
+                    visible_inputs[5].send_keys(Keys.ENTER)
             else:
                 print("📝 Phát hiện giao diện 1 ô nhập OTP liền chuỗi. Tiến hành điền thẳng...")
                 try:
