@@ -6,6 +6,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+# Khai báo thêm các thư viện hỗ trợ Đợi tường minh (Explicit Waits)
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
 
 # --- CONFIGURATION ---
 USERNAME = os.environ['NOIP_USERNAME']
@@ -18,7 +22,6 @@ def send_telegram(message, photo_path=None):
         print("⚠️ Telegram secrets missing. Skipping alert.")
         return
     
-    # Gửi ảnh kèm thông báo nếu có
     if photo_path and os.path.exists(photo_path):
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
         try:
@@ -31,7 +34,6 @@ def send_telegram(message, photo_path=None):
         except Exception as e:
             print(f"❌ Failed to send Telegram photo: {e}")
 
-    # Gửi tin nhắn văn bản thuần túy nếu không có ảnh
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
     try:
@@ -45,35 +47,42 @@ def renew():
     chrome_options.add_argument("--headless") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    # Đổi User-Agent sang bản mới và phổ biến hơn để giảm bớt tỷ lệ bị kích hoạt Captcha
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    driver.set_window_size(1280, 1024) # Đặt kích cỡ màn hình để ảnh chụp rõ ràng
+    driver.set_window_size(1280, 1024) 
 
     try:
         print("Opening No-IP Login Page...")
         driver.get("https://www.noip.com/login")
-        time.sleep(5)
+        
+        # Thiết lập bộ đợi tối đa 20 giây cho các phần tử trên trang
+        wait = WebDriverWait(driver, 20)
 
         print("Filling login form...")
-        driver.find_element(By.NAME, "username").send_keys(USERNAME)
+        # Đợi cho đến khi ô username thực sự hiển thị và tương tác được
+        username_field = wait.until(EC.element_to_be_clickable((By.NAME, "username")))
+        username_field.clear() # Xóa trắng ô trước khi điền đề phòng dữ liệu rác
+        username_field.send_keys(USERNAME)
+        print("🎯 Đã điền xong Username")
         
-        from selenium.webdriver.common.keys import Keys
-        password_field = driver.find_element(By.NAME, "password")
+        # Đợi ô password sẵn sàng
+        password_field = wait.until(EC.element_to_be_clickable((By.NAME, "password")))
+        password_field.clear()
         password_field.send_keys(PASSWORD)
+        print("🎯 Đã điền xong Password")
         
         print("Submitting login form via Enter key...")
         password_field.send_keys(Keys.ENTER)
-        time.sleep(10) # Tăng thời gian đợi lên 10s đề phòng mạng GitHub chậm
+        
+        # Đợi 10 giây để hệ thống xử lý sau khi nhấn Enter
+        time.sleep(10) 
 
         print("Navigating to Dynamic DNS Dashboard...")
         driver.get("https://my.noip.com/dynamic-dns")
         time.sleep(6)
 
-        # Nếu bị đẩy về trang login hoặc trang tài khoản bị chặn
         if "login" in driver.current_url or "geoblock" in driver.current_url:
-            # Chụp ảnh màn hình lưu lại thành file error.png
             screenshot_path = "error.png"
             driver.save_screenshot(screenshot_path)
             raise Exception("Đăng nhập thất bại! Xem ảnh chụp màn hình đính kèm để biết lý do cụ thể.")
@@ -98,11 +107,12 @@ def renew():
         error_msg = f"⚠️ No-IP Bot Thất Bại!\nLỗi: {str(e)}"
         print(error_msg)
         
-        # Nếu có file ảnh lỗi thì gửi kèm qua Telegram
         if os.path.exists("error.png"):
             send_telegram(error_msg, photo_path="error.png")
         else:
-            send_telegram(error_msg)
+            # Nếu lỗi xảy ra ngay bước điền form, chụp ảnh lại tại thời điểm đó để kiểm tra
+            driver.save_screenshot("error.png")
+            send_telegram(error_msg, photo_path="error.png")
         raise e
 
     finally:
