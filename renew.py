@@ -41,7 +41,9 @@ def renew():
     options.add_argument("--disable-dev-shm-usage")
     
     print("🤖 Khởi tạo Trình duyệt Ẩn danh (Undetected Chromedriver)...")
-    driver = uc.Chrome(options=options)
+    # Ép driver chạy phiên bản 149 để khớp với trình duyệt hệ thống
+    driver = uc.Chrome(options=options, version_main=149)
+
     driver.set_window_size(1280, 1024)
 
     try:
