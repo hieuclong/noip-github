@@ -121,10 +121,17 @@ def renew():
                 
             print("🔐 Tính toán mã OTP...")
             totp = pyotp.TOTP(NOIP_2FA_SECRET)
-            # Thêm 2 giây bù trừ thời gian mạng/server
-            otp_code = str(totp.at(time.time() + 2))
-            print(f"🔑 Mã OTP khởi tạo: {otp_code}")
-            
+            print("🔐 Tính toán mã OTP...")
+totp = pyotp.TOTP(NOIP_2FA_SECRET)
+
+             # Kiểm tra thời gian còn lại của mã OTP hiện tại
+             time_remaining = 30 - (int(time.time()) % 30)
+             if time_remaining < 5:
+             print(f"⏳ Mã OTP sắp hết hạn (còn {time_remaining}s), chờ mã mới...")
+             time.sleep(time_remaining + 1) # Chờ sang chu kỳ mới
+
+             otp_code = str(totp.now()) # Không dùng time.time() + 2 nữa, dùng now() chuẩn của thư viện
+             print(f"🔑 Mã OTP khởi tạo: {otp_code}")
             enter_otp_native(driver, otp_code)
             print("⏳ Đã gửi OTP, đang chờ hệ thống duyệt phiên và tự chuyển hướng...")
 
