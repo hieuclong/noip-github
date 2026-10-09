@@ -48,35 +48,46 @@ def send_telegram(message, photo_path=None):
     except: 
         pass
 
-def enter_otp_human_like(driver, otp_code):
-    """Mô phỏng nhập OTP bằng tương tác phím thật (isTrusted = true)"""
+def enter_otp_native(driver, otp_code):
+    """Mô phỏng nhập OTP qua Native JS Event tương thích hoàn hảo với React Form"""
     inputs = [i for i in driver.find_elements(By.TAG_NAME, "input") if i.is_displayed()]
     
     if len(inputs) >= 6:
-        print(f"🧩 Đang gõ 6 số OTP ({otp_code}) bằng mô phỏng phím thật...")
+        print(f"🧩 Đang truyền 6 số OTP ({otp_code}) vào các ô riêng biệt qua Native Event...")
         for i in range(6):
             digit = otp_code[i]
             inp = inputs[i]
-            inp.click()
-            time.sleep(0.1)
-            inp.send_keys(Keys.BACKSPACE)
-            inp.send_keys(digit)
-            time.sleep(0.2)
+            driver.execute_script("""
+                var el = arguments[0];
+                var val = arguments[1];
+                var valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                valueSetter.call(el, val);
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+                el.dispatchEvent(new Event('change', { bubbles: true }));
+                el.dispatchEvent(new KeyboardEvent('keydown', { key: val, bubbles: true }));
+                el.dispatchEvent(new KeyboardEvent('keyup', { key: val, bubbles: true }));
+            """, inp, digit)
+            time.sleep(0.15)
         
-        time.sleep(1)
+        time.sleep(1.5)
         try:
             btn = driver.find_element(By.XPATH, "//button[@type='submit' or contains(text(), 'Verify') or contains(text(), 'Submit')]")
-            btn.click()
+            driver.execute_script("arguments[0].click();", btn)
+            print("🎯 Đã bấm nút Submit bằng JavaScript thành công.")
         except Exception:
+            print("⚠️ Không tìm thấy nút submit, gửi lệnh ENTER qua ô cuối...")
             inputs[5].send_keys(Keys.ENTER)
 
     elif len(inputs) == 1:
-        print(f"📝 Đang gõ OTP ({otp_code}) vào ô nhập dạng liền...")
-        inputs[0].click()
-        inputs[0].send_keys(Keys.CONTROL + "a")
-        inputs[0].send_keys(Keys.BACKSPACE)
-        inputs[0].send_keys(otp_code)
-        time.sleep(0.5)
+        print(f"📝 Đang truyền OTP ({otp_code}) vào ô nhập dạng liền...")
+        driver.execute_script("""
+            var el = arguments[0];
+            var val = arguments[1];
+            var valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            valueSetter.call(el, val);
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        """, inputs[0], otp_code)
         inputs[0].send_keys(Keys.ENTER)
 
 def renew():
@@ -132,6 +143,7 @@ def renew():
             print("🔐 Tính toán mã OTP...")
             totp = pyotp.TOTP(NOIP_2FA_SECRET)
             
+            # Kiểm tra thời gian chu kỳ 30 giây để tránh lệch mã
             time_remaining = 30 - (int(time.time()) % 30)
             if time_remaining < 5:
                 print(f"⏳ Mã OTP sắp hết hạn (còn {time_remaining}s), tạm dừng {time_remaining + 1}s chờ mã mới...")
@@ -140,12 +152,17 @@ def renew():
             otp_code = str(totp.now())
             print(f"🔑 Mã OTP khởi tạo: {otp_code}")
             
-            enter_otp_human_like(driver, otp_code)
+            enter_otp_native(driver, otp_code)
             print("⏳ Đã gửi OTP, đang chờ hệ thống duyệt phiên và tự chuyển hướng...")
 
         # 3. TỰ ĐỘNG CHỜ ĐIỀU HƯỚNG TỚI MY.NOIP.COM
         print("🚀 Đang đợi hệ thống cấp Token và chuyển tới Dashboard...")
-        wait.until(EC.url_contains("my.noip.com"))
+        try:
+            wait.until(EC.url_contains("my.noip.com"))
+        except Exception as timeout_err:
+            driver.save_screenshot("timeout_error.png")
+            raise Exception("Timeout không chuyển được hướng về my.noip.com. Đã lưu ảnh màn hình vào timeout_error.png") from timeout_err
+            
         time.sleep(8)
 
         if "dynamic-dns" not in driver.current_url:
@@ -180,7 +197,8 @@ def renew():
     except Exception as e:
         error_msg = f"⚠️ No-IP Bot Thất Bại!\nLỗi: {str(e)}"
         print(error_msg)
-        driver.save_screenshot("error.png")
+        if not os.path.exists("error.png"):
+            driver.save_screenshot("error.png")
         send_telegram(error_msg, photo_path="error.png")
         raise e
     finally:
