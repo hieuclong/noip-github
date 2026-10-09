@@ -2,7 +2,7 @@ import os
 import time
 import requests
 import pyotp
-from selenium import webdriver
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
@@ -35,57 +35,47 @@ def send_telegram(message, photo_path=None):
     except: 
         pass
 
-def enter_otp_native(driver, otp_code):
-    """Mô phỏng nhập OTP qua Native JS Event để kích hoạt React Form"""
+def enter_otp_human_like(driver, otp_code):
+    """Mô phỏng nhập OTP bằng tương tác phím thật (isTrusted = true) để qua mặt Anti-Bot"""
     inputs = [i for i in driver.find_elements(By.TAG_NAME, "input") if i.is_displayed()]
     
     if len(inputs) >= 6:
-        print(f"🧩 Đang truyền 6 số OTP ({otp_code}) vào các ô riêng biệt qua Native Event...")
+        print(f"🧩 Đang gõ 6 số OTP ({otp_code}) bằng mô phỏng phím thật...")
         for i in range(6):
             digit = otp_code[i]
             inp = inputs[i]
-            driver.execute_script("""
-                var el = arguments[0];
-                var val = arguments[1];
-                var valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                valueSetter.call(el, val);
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-                el.dispatchEvent(new KeyboardEvent('keydown', { key: val, bubbles: true }));
-                el.dispatchEvent(new KeyboardEvent('keyup', { key: val, bubbles: true }));
-            """, inp, digit)
+            inp.click()
             time.sleep(0.1)
+            inp.send_keys(Keys.BACKSPACE)
+            inp.send_keys(digit)
+            time.sleep(0.2)
         
         time.sleep(1)
         try:
             btn = driver.find_element(By.XPATH, "//button[@type='submit' or contains(text(), 'Verify') or contains(text(), 'Submit')]")
-            driver.execute_script("arguments[0].click();", btn)
+            btn.click()
         except Exception:
             inputs[5].send_keys(Keys.ENTER)
 
     elif len(inputs) == 1:
-        print(f"📝 Đang truyền OTP ({otp_code}) vào ô nhập dạng liền...")
-        driver.execute_script("""
-            var el = arguments[0];
-            var val = arguments[1];
-            var valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-            valueSetter.call(el, val);
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-        """, inputs[0], otp_code)
+        print(f"📝 Đang gõ OTP ({otp_code}) vào ô nhập dạng liền...")
+        inputs[0].click()
+        inputs[0].send_keys(Keys.CONTROL + "a")
+        inputs[0].send_keys(Keys.BACKSPACE)
+        inputs[0].send_keys(otp_code)
+        time.sleep(0.5)
         inputs[0].send_keys(Keys.ENTER)
 
 def renew():
-    options = webdriver.ChromeOptions()
+    options = uc.ChromeOptions()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     
-    print("🤖 Khởi tạo Trình duyệt Chrome...")
-    driver = webdriver.Chrome(options=options)
+    print("🤖 Khởi tạo Trình duyệt Undetected Chrome...")
+    driver = uc.Chrome(options=options)
     driver.set_window_size(1280, 1024)
     wait = WebDriverWait(driver, 30)
 
@@ -97,12 +87,12 @@ def renew():
 
         print("Filling login form...")
         username_field = wait.until(EC.element_to_be_clickable((By.NAME, "username")))
-        username_field.clear()
+        username_field.click()
         username_field.send_keys(USERNAME)
         print("🎯 Đã điền xong Username")
         
         password_field = wait.until(EC.element_to_be_clickable((By.NAME, "password")))
-        password_field.clear()
+        password_field.click()
         password_field.send_keys(PASSWORD)
         print("🎯 Đã điền xong Password")
         
@@ -122,7 +112,7 @@ def renew():
             print("🔐 Tính toán mã OTP...")
             totp = pyotp.TOTP(NOIP_2FA_SECRET)
             
-            # Kiểm tra thời gian còn lại của chu kỳ 30 giây hiện tại
+            # Kiểm tra thời gian còn lại của chu kỳ 30 giây
             time_remaining = 30 - (int(time.time()) % 30)
             if time_remaining < 5:
                 print(f"⏳ Mã OTP sắp hết hạn (còn {time_remaining}s), tạm dừng {time_remaining + 1}s chờ mã mới...")
@@ -131,7 +121,7 @@ def renew():
             otp_code = str(totp.now())
             print(f"🔑 Mã OTP khởi tạo: {otp_code}")
             
-            enter_otp_native(driver, otp_code)
+            enter_otp_human_like(driver, otp_code)
             print("⏳ Đã gửi OTP, đang chờ hệ thống duyệt phiên và tự chuyển hướng...")
 
         # 3. TỰ ĐỘNG CHỜ ĐIỀU HƯỚNG TỚI MY.NOIP.COM
