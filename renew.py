@@ -57,3 +57,134 @@ def enter_otp_human_like(driver, otp_code):
         for i in range(6):
             digit = otp_code[i]
             inp = inputs[i]
+            inp.click()
+            time.sleep(0.1)
+            inp.send_keys(Keys.BACKSPACE)
+            inp.send_keys(digit)
+            time.sleep(0.2)
+        
+        time.sleep(1)
+        try:
+            btn = driver.find_element(By.XPATH, "//button[@type='submit' or contains(text(), 'Verify') or contains(text(), 'Submit')]")
+            btn.click()
+        except Exception:
+            inputs[5].send_keys(Keys.ENTER)
+
+    elif len(inputs) == 1:
+        print(f"📝 Đang gõ OTP ({otp_code}) vào ô nhập dạng liền...")
+        inputs[0].click()
+        inputs[0].send_keys(Keys.CONTROL + "a")
+        inputs[0].send_keys(Keys.BACKSPACE)
+        inputs[0].send_keys(otp_code)
+        time.sleep(0.5)
+        inputs[0].send_keys(Keys.ENTER)
+
+def renew():
+    options = uc.ChromeOptions()
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    
+    print("🤖 Khởi tạo Trình duyệt Undetected Chrome...")
+    chrome_version = get_chrome_major_version()
+    
+    if chrome_version:
+        print(f"🔍 Khóa phiên bản ChromeDriver khớp với Chrome hệ thống: v{chrome_version}")
+        driver = uc.Chrome(options=options, version_main=chrome_version)
+    else:
+        driver = uc.Chrome(options=options)
+
+    driver.set_window_size(1280, 1024)
+    wait = WebDriverWait(driver, 30)
+
+    try:
+        # 1. MỞ TRANG ĐĂNG NHẬP
+        print("Opening No-IP Login Page...")
+        driver.get("https://www.noip.com/login")
+        time.sleep(4)
+
+        print("Filling login form...")
+        username_field = wait.until(EC.element_to_be_clickable((By.NAME, "username")))
+        username_field.click()
+        username_field.send_keys(USERNAME)
+        print("🎯 Đã điền xong Username")
+        
+        password_field = wait.until(EC.element_to_be_clickable((By.NAME, "password")))
+        password_field.click()
+        password_field.send_keys(PASSWORD)
+        print("🎯 Đã điền xong Password")
+        
+        print("Submitting login form via Enter key...")
+        password_field.send_keys(Keys.ENTER)
+        time.sleep(6)
+
+        current_url = driver.current_url.lower()
+        print(f"📍 URL hiện tại sau khi gửi tài khoản: {driver.current_url}")
+        
+        # 2. XỬ LÝ 2FA
+        if "2fa" in current_url or "verify" in current_url:
+            if not NOIP_2FA_SECRET:
+                driver.save_screenshot("2fa_error.png")
+                raise Exception("Phát hiện trang đòi mã xác minh nhưng thiếu NOIP_2FA_SECRET!")
+                
+            print("🔐 Tính toán mã OTP...")
+            totp = pyotp.TOTP(NOIP_2FA_SECRET)
+            
+            time_remaining = 30 - (int(time.time()) % 30)
+            if time_remaining < 5:
+                print(f"⏳ Mã OTP sắp hết hạn (còn {time_remaining}s), tạm dừng {time_remaining + 1}s chờ mã mới...")
+                time.sleep(time_remaining + 1)
+                
+            otp_code = str(totp.now())
+            print(f"🔑 Mã OTP khởi tạo: {otp_code}")
+            
+            enter_otp_human_like(driver, otp_code)
+            print("⏳ Đã gửi OTP, đang chờ hệ thống duyệt phiên và tự chuyển hướng...")
+
+        # 3. TỰ ĐỘNG CHỜ ĐIỀU HƯỚNG TỚI MY.NOIP.COM
+        print("🚀 Đang đợi hệ thống cấp Token và chuyển tới Dashboard...")
+        wait.until(EC.url_contains("my.noip.com"))
+        time.sleep(8)
+
+        if "dynamic-dns" not in driver.current_url:
+            driver.get("https://my.noip.com/dynamic-dns")
+            time.sleep(6)
+
+        print(f"📍 URL hiện tại: {driver.current_url}")
+
+        if "login" in driver.current_url.lower() and "my.noip.com" not in driver.current_url:
+            driver.save_screenshot("dashboard_failed.png")
+            raise Exception("Bị đá về trang đăng nhập! Phiên làm việc không được chấp nhận.")
+
+        # 4. GIA HẠN HOST
+        print("Checking for hosts to renew...")
+        time.sleep(3)
+        confirm_buttons = driver.find_elements(By.XPATH, "//button[contains(text(), 'Confirm')]")
+        
+        if len(confirm_buttons) > 0:
+            count = 0
+            for btn in confirm_buttons:
+                driver.execute_script("arguments[0].click();", btn)
+                count += 1
+                time.sleep(2)
+            success_msg = f"🎉 Success! Đã tự động gia hạn thành công {count} tên miền trên No-IP."
+            print(success_msg)
+            send_telegram(success_msg) 
+        else:
+            success_msg = "✅ Đăng nhập thành công. Không có tên miền nào cần bấm gia hạn hôm nay."
+            print(success_msg)
+            send_telegram(success_msg)
+            
+    except Exception as e:
+        error_msg = f"⚠️ No-IP Bot Thất Bại!\nLỗi: {str(e)}"
+        print(error_msg)
+        driver.save_screenshot("error.png")
+        send_telegram(error_msg, photo_path="error.png")
+        raise e
+    finally:
+        driver.quit()
+
+if __name__ == "__main__":
+    renew()
